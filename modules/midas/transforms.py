@@ -245,6 +245,7 @@ def get_transforms(depth_predictor, sparsifier, nsamples):
         "dpt_swin2_tiny_256"    : [0.5, 0.5, 0.5],
         "dpt_levit_224"         : [0.5, 0.5, 0.5],
         "midas_small"           : [0.485, 0.456, 0.406],
+        "depth_anything_small"  : [0.485, 0.456, 0.406],
     }
 
     image_std_dict = {
@@ -255,6 +256,7 @@ def get_transforms(depth_predictor, sparsifier, nsamples):
         "dpt_swin2_tiny_256"    : [0.5, 0.5, 0.5],
         "dpt_levit_224"         : [0.5, 0.5, 0.5],
         "midas_small"           : [0.229, 0.224, 0.225],
+        "depth_anything_small"  : [0.229, 0.224, 0.225],
     }
 
     resize_method_dict = {
@@ -265,6 +267,7 @@ def get_transforms(depth_predictor, sparsifier, nsamples):
         "dpt_swin2_tiny_256"    : "minimal",
         "dpt_levit_224"         : "minimal",
         "midas_small"           : "upper_bound",
+        "depth_anything_small"  : "lower_bound",
     }
 
     resize_dict = {
@@ -275,6 +278,7 @@ def get_transforms(depth_predictor, sparsifier, nsamples):
         "dpt_swin2_tiny_256"    : 256,
         "dpt_levit_224"         : 224,
         "midas_small"           : 384,
+        "depth_anything_small"  : 518,
     }
 
     keep_aspect_ratio = True

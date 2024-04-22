@@ -7,6 +7,7 @@ from modules.interpolator import Interpolator2D
 
 import modules.midas.transforms as transforms
 import modules.midas.utils as utils
+from utils_eval import compute_ls_solution
 
 class VIDepth(object):
     def __init__(self, depth_predictor, nsamples, sml_model_path, 
@@ -32,6 +33,8 @@ class VIDepth(object):
             self.DepthModel = torch.hub.load("intel-isl/MiDaS", "DPT_LeViT_224")
         elif depth_predictor == "midas_small":
             self.DepthModel = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
+        elif depth_predictor == "depth_anything_small":
+            self.DepthModel = torch.load("/home/saimouli/Documents/github/VI_Depth_sai/weights/depth_anything_vits14.pth")
         else:
             self.DepthModel = None
 
@@ -49,29 +52,20 @@ class VIDepth(object):
         self.min_depth, self.max_depth = min_depth, max_depth
 
         # eval mode
+        self.device = device
         self.DepthModel.eval()
-        self.DepthModel.to(device)
+        self.DepthModel.to(self.device)
 
         # eval mode
         self.ScaleMapLearner.eval()
-        self.ScaleMapLearner.to(device)
+        self.ScaleMapLearner.to(self.device)
 
-
-    def run(self, input_image, input_sparse_depth, validity_map, device):
-
+    def infer_depth(self, input_image):
         input_height, input_width = np.shape(input_image)[0], np.shape(input_image)[1]
         
         sample = {"image" : input_image}
         sample = self.depth_model_transform(sample)
-        im = sample["image"].to(device)
-
-        input_sparse_depth_valid = (input_sparse_depth < self.max_depth) * (input_sparse_depth > self.min_depth)
-        if validity_map is not None:
-            input_sparse_depth_valid *= validity_map.astype(np.bool)
-
-        input_sparse_depth_valid = input_sparse_depth_valid.astype(bool)
-        input_sparse_depth[~input_sparse_depth_valid] = np.inf # set invalid depth
-        input_sparse_depth = 1.0 / input_sparse_depth
+        im = sample["image"].to(self.device)
 
         # run depth model
         with torch.no_grad():
@@ -87,18 +81,52 @@ class VIDepth(object):
                 .cpu()
                 .numpy()
             )
+        return depth_pred
+
+    def run(self, input_image, input_sparse_depth, validity_map, device):
+
+        input_height, input_width = np.shape(input_image)[0], np.shape(input_image)[1]
+        
+       #sample = {"image" : input_image}
+        #sample = self.depth_model_transform(sample)
+        #im = sample["image"].to(device)
+
+        input_sparse_depth_valid = (input_sparse_depth < self.max_depth) * (input_sparse_depth > self.min_depth)
+        if validity_map is not None:
+            input_sparse_depth_valid *= validity_map.astype(np.bool)
+
+        input_sparse_depth_valid = input_sparse_depth_valid.astype(bool)
+        input_sparse_depth[~input_sparse_depth_valid] = np.inf # set invalid depth
+        input_sparse_depth = 1.0 / input_sparse_depth
+
+        # run depth model
+        depth_pred = self.infer_depth(input_image)
+        # with torch.no_grad():
+        #     depth_pred = self.DepthModel.forward(im.unsqueeze(0))
+        #     depth_pred = (
+        #         torch.nn.functional.interpolate(
+        #             depth_pred.unsqueeze(1),
+        #             size=(input_height, input_width),
+        #             mode="bicubic",
+        #             align_corners=False,
+        #         )
+        #         .squeeze()
+        #         .cpu()
+        #         .numpy()
+        #     )
 
         # global scale and shift alignment
-        GlobalAlignment = LeastSquaresEstimator(
-            estimate=depth_pred,
-            target=input_sparse_depth,
-            valid=input_sparse_depth_valid
-        )
-        GlobalAlignment.compute_scale_and_shift()
-        GlobalAlignment.apply_scale_and_shift()
-        GlobalAlignment.clamp_min_max(clamp_min=self.min_pred, clamp_max=self.max_pred)
-        int_depth = GlobalAlignment.output.astype(np.float32)
-
+        # GlobalAlignment = LeastSquaresEstimator(
+        #     estimate=depth_pred,
+        #     target=input_sparse_depth,
+        #     valid=input_sparse_depth_valid
+        # )
+        # GlobalAlignment.compute_scale_and_shift()
+        # GlobalAlignment.apply_scale_and_shift()
+        # GlobalAlignment.clamp_min_max(clamp_min=self.min_pred, clamp_max=self.max_pred)
+        # int_depth = GlobalAlignment.output.astype(np.float32)
+        int_depth,_,_ = compute_ls_solution(depth_pred, input_sparse_depth, input_sparse_depth_valid, self.min_pred, self.max_pred)
+        
         # interpolation of scale map
         assert (np.sum(input_sparse_depth_valid) >= 3), "not enough valid sparse points"
         ScaleMapInterpolator = Interpolator2D(

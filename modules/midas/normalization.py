@@ -105,5 +105,20 @@ VOID_INTERMEDIATE = {
         },
     },
 
+    "depth_anything_small" : {
+        "void_150" : { 
+            "mean" : {"int_depth" : 0.723, "int_scales" : 0.402}, 
+            "std" : {"int_depth" : 0.190, "int_scales" : 0.132},
+        },
+        "void_500" : { 
+            "mean" : {"int_depth" : 0.731, "int_scales" : 0.393}, 
+            "std" : {"int_depth" : 0.196, "int_scales" : 0.136},
+        },
+        "void_1500" : { 
+            "mean" : {"int_depth" : 0.728, "int_scales" : 0.385}, 
+            "std" : {"int_depth" : 0.199, "int_scales" : 0.140},
+        },
+    },
+
 }
 
