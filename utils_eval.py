@@ -28,7 +28,7 @@ def param_sweep_shift(shift_ls, scale, depth_infer, gt_depth_inv, mask, rmse_ls,
     plt.legend(["RMSE", "LS"])
     plt.xlabel("Shift parameters")
     plt.ylabel("RMSE (mm)")
-    plt.show()
+    #plt.show()
     return best_shift, best_shift_rmse
 
 def param_sweep_scale(scale_ls, shift, depth_infer, gt_depth_inv, mask, rmse_ls, frame_idx, optim_shift=False, save_img = False):
@@ -55,7 +55,7 @@ def param_sweep_scale(scale_ls, shift, depth_infer, gt_depth_inv, mask, rmse_ls,
     plt.legend(["RMSE", "LS"])
     plt.xlabel("Scale parameters")
     plt.ylabel("RMSE (mm)")
-    plt.show()
+    #plt.show()
     return best_scale, best_scale_rmse
 
 def compute_ls_solution(depth_pred, input_sparse_depth, input_sparse_depth_valid, min_pred, max_pred):

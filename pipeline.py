@@ -93,7 +93,7 @@ class VIDepth(object):
 
         input_sparse_depth_valid = (input_sparse_depth < self.max_depth) * (input_sparse_depth > self.min_depth)
         if validity_map is not None:
-            input_sparse_depth_valid *= validity_map.astype(np.bool)
+            input_sparse_depth_valid *= validity_map.astype(bool)
 
         input_sparse_depth_valid = input_sparse_depth_valid.astype(bool)
         input_sparse_depth[~input_sparse_depth_valid] = np.inf # set invalid depth
