@@ -86,7 +86,7 @@ if __name__=="__main__":
                             help='Name of depth predictor to use in pipeline.')
     parser.add_argument('-ns', '--nsamples', type=int, default=150, 
                             help='Number of sparse metric depth samples available.')
-    parser.add_argument('-sm', '--sml-model-path', type=str, default='', 
+    parser.add_argument('-sm', '--sml-model-path', type=str, default='/home/saimouli/Documents/github/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt', 
                             help='Path to trained SML model weights.')
 
     # depth parameters
