@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 import metrics
 from sklearn.linear_model import RANSACRegressor
-#test
+
 def load_input_image(input_image_fp):
     return utils.read_image(input_image_fp)
 

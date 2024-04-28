@@ -9,6 +9,8 @@ import modules.midas.transforms as transforms
 import modules.midas.utils as utils
 from utils_eval import compute_ls_solution
 
+import matplotlib.pyplot as plt
+
 class VIDepth(object):
     def __init__(self, depth_predictor, nsamples, sml_model_path, 
                 min_pred, max_pred, min_depth, max_depth, device):
@@ -140,6 +142,10 @@ class VIDepth(object):
         )
         int_scales = ScaleMapInterpolator.interpolated_scale_map.astype(np.float32)
         int_scales = utils.normalize_unit_range(int_scales)
+        
+        # plt.imshow(input_image)
+        # plt.imshow(int_scales)
+        # plt.show()
 
         sample = {"image" : input_image, "int_depth" : int_depth, "int_scales" : int_scales, "int_depth_no_tf" : int_depth}
         sample = self.ScaleMapLearner_transform(sample)
