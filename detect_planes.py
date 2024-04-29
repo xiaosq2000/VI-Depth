@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 
 import metrics
 from sklearn.linear_model import RANSACRegressor
+from sklearn.cluster import KMeans
 
 def load_input_image(input_image_fp):
     return utils.read_image(input_image_fp)
@@ -26,79 +27,115 @@ def load_sparse_depth(input_sparse_depth_fp):
     input_sparse_depth[input_sparse_depth <= 0] = 0.0
     return input_sparse_depth
 
-def detect_normals(depth_image, display=False):
-    # Compute normals using depth gradients
-    dx = cv2.Sobel(depth_image, cv2.CV_64F, 1, 0, ksize=3)
-    dy = cv2.Sobel(depth_image, cv2.CV_64F, 0, 1, ksize=3)
-    dz = np.ones_like(depth_image)  # Assuming depth image represents z-coordinate
 
-    # Normalize the gradients
-    normal = np.dstack((-dx, -dy, dz))  # Negating dx and dy for correct orientation
-    magnitude = np.sqrt(np.sum(normal ** 2, axis=2))
-    normal[:, :, 0] /= magnitude
-    normal[:, :, 1] /= magnitude
-    normal[:, :, 2] /= magnitude
+def detect_normals(depth_image, input_sparse_depth, input_image, display=False):
+    rows, cols = depth_image.shape
+    viz_img = input_image.copy()
+    x, y = np.meshgrid(np.arange(cols), np.arange(rows))
+    x = x.astype(np.float32)
+    y = y.astype(np.float32)
+
+    # Calculate the partial derivatives of depth with respect to x and y
+    dx = cv2.Sobel(depth_image, cv2.CV_32F, 1, 0)
+    dy = cv2.Sobel(depth_image, cv2.CV_32F, 0, 1)
     
-    # Convert normals to spherical coordinates (azimuth and elevation)
-    azimuth = np.arctan2(normal[:,:,1], normal[:,:,0])
-    elevation = np.arcsin(normal[:,:,2])
-
-    # Encode azimuth and elevation into colors
-    colors = np.zeros((normal.shape[0], normal.shape[1], 3), dtype=np.uint8)
-    colors[:,:,0] = ((azimuth / (2 * np.pi)) * 255).astype(np.uint8)  # Red channel
-    colors[:,:,1] = ((elevation / np.pi) * 255).astype(np.uint8)      # Green channel
-
-    if display==True:
-        # Display the normal map
-        cv2.imshow('Normals', colors)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    #compute normal vector for each pixel
+    normal = np.dstack((-dx, -dy, np.ones((rows, cols))))
+    norm = np.sqrt(np.sum(normal**2, axis=2, keepdims=True))
+    normal = np.divide(normal, norm, out=np.zeros_like(normal), where=norm != 0)
     
+    # Map the normal vectors to the [0, 255] range and convert to uint8
+    normal = (normal + 1) * 127.5
+    normal = normal.clip(0, 255).astype(np.uint8)
+    normal_bgr = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
+    if display:
+        if np.any(input_sparse_depth):
+            u, v = np.nonzero(input_sparse_depth)
+            for i in range(len(u)):
+                cv2.circle(viz_img, (v[i], u[i]), 1, (0, 255, 0), -1)
+
+        # make these into same plot
+        plt.figure()
+        plt.subplot(1, 3, 1)  # 1 row, 2 columns, 1st subplot
+        plt.imshow(viz_img)
+        plt.subplot(1, 3, 2)  # 1 row, 2 columns, 2nd subplot
+        plt.imshow(normal_bgr)
+        plt.subplot(1, 3, 3)
+        plt.imshow(depth_image) 
+        plt.show()
     return normal
 
-def detect_planes_from_normals(normals, threshold_distance=0.1, min_samples=3, max_trials=1000):
-    # Reshape normals into a list of points
-    points = normals.reshape(-1, 3)
+# def detect_planes_from_normals(normals, threshold_distance=0.1, min_samples=3, max_trials=1000):
+#     # Reshape normals into a list of points
+#     points = normals.reshape(-1, 3)
 
-    # Fit planes using RANSAC
-    ransac = RANSACRegressor(min_samples=min_samples, residual_threshold=threshold_distance, max_trials=max_trials)
-    ransac.fit(points, np.zeros(len(points)))
+#     # Fit planes using RANSAC
+#     ransac = RANSACRegressor(min_samples=min_samples, residual_threshold=threshold_distance, max_trials=max_trials)
+#     ransac.fit(points, np.zeros(len(points)))
 
-    # Extract plane parameters (normal vector and distance from origin)
-    normal = ransac.estimator_.coef_ / np.linalg.norm(ransac.estimator_.coef_)
-    distance = ransac.estimator_.intercept_
+#     # Extract plane parameters (normal vector and distance from origin)
+#     normal = ransac.estimator_.coef_ / np.linalg.norm(ransac.estimator_.coef_)
+#     distance = ransac.estimator_.intercept_
 
-    return normal, distance
+#     return normal, distance
 
-def visualize_planes_and_normals(image, normals, normal_length=20):
-    # Detect planes from normals
-    normal, distance = detect_planes_from_normals(normals)
+# def visualize_planes_and_normals(image, normals, normal_length=20):
+#     # Detect planes from normals
+#     normal, distance = detect_planes_from_normals(normals)
 
-    # Draw plane on the image
-    h, w = image.shape[:2]
-    xx, yy = np.meshgrid(np.arange(w), np.arange(h))
-    zz = (-normal[0] * xx - normal[1] * yy - distance) / normal[2]
+#     # Draw plane on the image
+#     h, w = image.shape[:2]
+#     xx, yy = np.meshgrid(np.arange(w), np.arange(h))
+#     zz = (-normal[0] * xx - normal[1] * yy - distance) / normal[2]
 
-    # Convert 3D points to image coordinates
-    points_2d = np.column_stack((xx.flatten(), yy.flatten())).astype(np.int32)
-    points_2d = points_2d.reshape(-1, 1, 2)
+#     # Convert 3D points to image coordinates
+#     points_2d = np.column_stack((xx.flatten(), yy.flatten())).astype(np.int32)
+#     points_2d = points_2d.reshape(-1, 1, 2)
 
-    # Draw the plane on the image
-    plane_color = (0, 255, 0)  # Green color
-    image_with_plane = cv2.polylines(image.copy(), [points_2d], isClosed=False, color=plane_color, thickness=1)
+#     # Draw the plane on the image
+#     plane_color = (0, 255, 0)  # Green color
+#     image_with_plane = cv2.polylines(image.copy(), [points_2d], isClosed=False, color=plane_color, thickness=1)
 
-    # Draw normals on the image
-    for i in range(0, h, normal_length):
-        for j in range(0, w, normal_length):
-            p1 = (j, i)
-            p2 = (int(j + normals[i, j, 0] * normal_length), int(i + normals[i, j, 1] * normal_length))
-            cv2.arrowedLine(image_with_plane, p1, p2, (255, 0, 0), 2)  # Draw red arrows for normals
+#     # Draw normals on the image
+#     for i in range(0, h, normal_length):
+#         for j in range(0, w, normal_length):
+#             p1 = (j, i)
+#             p2 = (int(j + normals[i, j, 0] * normal_length), int(i + normals[i, j, 1] * normal_length))
+#             cv2.arrowedLine(image_with_plane, p1, p2, (255, 0, 0), 2)  # Draw red arrows for normals
 
-    # Display the image with planes and normals
-    cv2.imshow('Planes and Normals', image_with_plane)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    
+#     # Display the image with planes and normals
+#     cv2.imshow('Planes and Normals', image_with_plane)
+#     cv2.waitKey(0)
+#     cv2.destroyAllWindows()
+
+def visualize_sparse_depth(input_sparse_depth, input_image):
+    # if input sparse depth u,v non zero values plot them on input image
+    counter = 0
+    if np.any(input_sparse_depth):
+        # get non zero values
+        u, v = np.nonzero(input_sparse_depth)
+        # plot them on input image
+        for i in range(len(u)):
+            cv2.circle(input_image, (v[i], u[i]), 1, (0, 255, 0), -1)
+            counter += 1
+    print("Number of sparse points: ", counter)
+    plt.imshow(input_image)
+    plt.show()
+
+def visualize_sparse_depth(input_sparse_depth, input_image):
+    # if input sparse depth u,v non zero values plot them on input image
+    counter = 0
+    if np.any(input_sparse_depth):
+        # get non zero values
+        u, v = np.nonzero(input_sparse_depth)
+        # plot them on input image
+        for i in range(len(u)):
+            cv2.circle(input_image, (v[i], u[i]), 1, (0, 255, 0), -1)
+            counter += 1
+    print("Number of sparse points: ", counter)
+    plt.imshow(input_image)
+    plt.show()
+
 def run(dataset_path, depth_predictor, nsamples, sml_model_path, 
         min_pred, max_pred, min_depth, max_depth, 
         input_path, output_path, save_output):
@@ -118,7 +155,8 @@ def run(dataset_path, depth_predictor, nsamples, sml_model_path,
     avg_error_w_int_depth = metrics.ErrorMetricsAverager()
     avg_error_w_pred = metrics.ErrorMetricsAverager()
 
-    for i in tqdm(range(0,1,1)):
+    #for i in tqdm(range(0,1,1)):
+    for i in tqdm(range(len(test_image_list))):
         # Image
         input_image_fp = os.path.join(dataset_path, test_image_list[i])
         input_image = utils.read_image(input_image_fp)
@@ -143,6 +181,10 @@ def run(dataset_path, depth_predictor, nsamples, sml_model_path,
         target_depth_inv = 1.0 / target_depth
         
         depth_infer_inv = method.infer_depth(input_image)
+
+        normals = detect_normals(depth_infer_inv, input_sparse_depth, input_image, True)
+        
+        #normals = detect_normals(1.0/target_depth_inv, input_image, True)
         
         output = method.run(input_image, input_sparse_depth, validity_map, device)
         
@@ -171,8 +213,8 @@ def run(dataset_path, depth_predictor, nsamples, sml_model_path,
         # cv2.imshow('target_depth', target_depth)
         # cv2.waitKey(0)
         
-        normals = detect_normals(1.0/depth_infer_inv)
-        visualize_planes_and_normals(input_image, normals, normal_length=20)
+        #planes = detect_planes_from_normals(normals, input_image, True)
+
         
         # plt.imshow(depth_infer_inv)
         # plt.show()
@@ -194,7 +236,7 @@ if __name__=="__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-ds', '--dataset-path', type=str, default='/home/saimouli/Documents/github/VI-Depth/input',
+    parser.add_argument('-ds', '--dataset-path', type=str, default='./input',
                         help='Path to VOID release dataset.')
     
     # model parameters
@@ -202,7 +244,7 @@ if __name__=="__main__":
                             help='Name of depth predictor to use in pipeline.')
     parser.add_argument('-ns', '--nsamples', type=int, default=150, 
                             help='Number of sparse metric depth samples available.')
-    parser.add_argument('-sm', '--sml-model-path', type=str, default='/home/saimouli/Documents/github/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt', 
+    parser.add_argument('-sm', '--sml-model-path', type=str, default='/home/saimouli/Documents/github/VI_Depth_sai/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt', 
                             help='Path to trained SML model weights.')
 
     # depth parameters

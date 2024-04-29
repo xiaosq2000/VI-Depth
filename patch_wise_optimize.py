@@ -130,9 +130,7 @@ def visualize_sparse_depth(input_sparse_depth, input_image):
     print("Number of sparse points: ", counter)
     plt.imshow(input_image)
     plt.show()
-    # cv2.waitKey(1)
-    # cv2.destroyAllWindows()
-
+    
 def visualize_depth_img(gt_img_cpu, viz_bound, infer_depth_patches, sparse_depth_patches, mask_array):
     reconstructed_depth = reconstruct_depth_image(infer_depth_patches, mask_array)
     reconstructed_gt_depth = reconstruct_depth_image(sparse_depth_patches, mask_array)
@@ -234,7 +232,7 @@ def uniform_sample_depth(num_features, target_depth_inv, input_sparse_depth, inp
     for u, v in zip(non_zero_locations[0], non_zero_locations[1]):
         if mask[u, v] and np.random.rand() < sampling_ratio:
             # If the location satisfies the mask and the random sampling condition, sample it
-            sampled_image_depth_inv[u, v] = 1.0/target_depth_inv[u, v]
+            sampled_image_depth_inv[u, v] = 1.0/target_depth_inv[u, v] + np.random.normal(0, 0.01)
             cv2.circle(viz_img, (v, u), 1, (0, 255, 0), -1)
 
     # Display the resulting image if specified
