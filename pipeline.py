@@ -89,7 +89,7 @@ class VIDepth(object):
 
         input_height, input_width = np.shape(input_image)[0], np.shape(input_image)[1]
         
-       #sample = {"image" : input_image}
+        #sample = {"image" : input_image}
         #sample = self.depth_model_transform(sample)
         #im = sample["image"].to(device)
 

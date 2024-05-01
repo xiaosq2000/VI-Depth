@@ -130,7 +130,7 @@ def visualize_sparse_depth(input_sparse_depth, input_image):
     print("Number of sparse points: ", counter)
     plt.imshow(input_image)
     plt.show()
-    
+
 def visualize_depth_img(gt_img_cpu, viz_bound, infer_depth_patches, sparse_depth_patches, mask_array):
     reconstructed_depth = reconstruct_depth_image(infer_depth_patches, mask_array)
     reconstructed_gt_depth = reconstruct_depth_image(sparse_depth_patches, mask_array)
@@ -213,37 +213,47 @@ def output_model_sparse(input_image, input_sparse_depth, device, method, mask, t
 def uniform_sample_depth(num_features, target_depth_inv, input_sparse_depth, input_image, display=False):
     # Extract non-zero indices from sparse depth image
     viz_img = input_image.copy()
-    # Identify non-zero depth locations in the target depth map
-    non_zero_locations = np.nonzero(target_depth_inv)
+
+    height, width = target_depth_inv.shape
+
+    # Flatten the depth image to a 1D array
+    flattened_depth = target_depth_inv.flatten()
+
+    # Find the non-zero depth indices
+    non_zero_indices = np.nonzero(flattened_depth)[0]
 
     # Calculate the number of non-zero depth values
-    total_non_zero_depth = len(non_zero_locations[0])
+    total_non_zero_depth = len(non_zero_indices)
 
     # Compute the sampling ratio based on the number of features
     sampling_ratio = num_features / total_non_zero_depth
 
-    # Create a mask for sampling based on the target depth
-    mask = target_depth_inv > 0
+    # Randomly select depth indices based on the sampling ratio
+    sampled_indices = np.random.choice(non_zero_indices, size=num_features, replace=False)
 
-    # Initialize the sampled image
-    sampled_image_depth_inv = np.zeros_like(input_sparse_depth, dtype=input_sparse_depth.dtype)
+    # Initialize the sampled depth array
+    sampled_depth_inv = np.zeros_like(flattened_depth)
 
-    # Iterate through each non-zero depth location and sample based on the sampling ratio
-    for u, v in zip(non_zero_locations[0], non_zero_locations[1]):
-        if mask[u, v] and np.random.rand() < sampling_ratio:
-            # If the location satisfies the mask and the random sampling condition, sample it
-            sampled_image_depth_inv[u, v] = 1.0/target_depth_inv[u, v] + np.random.normal(0, 0.01)
-            cv2.circle(viz_img, (v, u), 1, (0, 255, 0), -1)
+    # Set sampled depth values to 1.0 / original depth values
+    sampled_depth_inv[sampled_indices] = 1.0 / flattened_depth[sampled_indices]
+
+    # Reshape the sampled depth array to the original image shape
+    sampled_depth_inv = sampled_depth_inv.reshape((height, width))
 
     # Display the resulting image if specified
     if display:
+        non_zero_locations = np.nonzero(sampled_depth_inv)
+        for u, v in zip(non_zero_locations[0], non_zero_locations[1]):
+            cv2.circle(viz_img, (v, u), 1, (0, 255, 0), -1)
+
+        plt.title("Sampled Image")
         plt.imshow(viz_img)
         plt.show()
         #cv2.imshow("Sampled Image", sampled_image)
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
 
-    return sampled_image_depth_inv
+    return sampled_depth_inv
 
 def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -278,8 +288,8 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
     #avg_error_w_pred_70 = metrics.ErrorMetricsAverager()
 
     # iterate through inputs list
-    for i in tqdm(range(len(test_image_list))):
-    #for i in tqdm(range(0,1,1)):   
+    #for i in tqdm(range(len(test_image_list))):
+    for i in tqdm(range(0,5,1)):   
         # Image
         input_image_fp = os.path.join(dataset_path, test_image_list[i])
         input_image = utils.read_image(input_image_fp)
@@ -310,7 +320,7 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
         target_depth[~mask] = np.inf  # set invalid depth
         target_depth = 1.0 / target_depth
 
-        sampled_input_sparse = uniform_sample_depth(600, target_depth, input_sparse_depth, input_image, display=False)
+        sampled_input_sparse = uniform_sample_depth(600, target_depth, input_sparse_depth, input_image, display=True)
         #depth_infer_inv = method.infer_depth(input_image)
         #viz_bound, infer_depth_patches_inv, sparse_depth_patches, mask_array = get_superpixel(input_image, depth_infer_inv, input_sparse_depth)
         
@@ -454,7 +464,7 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
 #/media/saimouli/RPNG_FLASH_4/datasets/VOID_150
-    parser.add_argument('-ds', '--dataset-path', type=str, default='/media/saimouli/RPNG_FLASH_4/datasets/VOID_150',
+    parser.add_argument('-ds', '--dataset-path', type=str, default='/media/saimouli/RPNG_FLASH_4/data/VOID_small/table1',
                         help='Path to VOID release dataset.')
     parser.add_argument('-dp', '--depth-predictor', type=str, default='dpt_hybrid', 
                         help='Name of depth predictor to use in pipeline.')
