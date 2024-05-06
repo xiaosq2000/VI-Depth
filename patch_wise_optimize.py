@@ -289,14 +289,14 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
 
     # iterate through inputs list
     #for i in tqdm(range(len(test_image_list))):
-    for i in tqdm(range(0,5,1)):   
+    for i in tqdm(range(1,2,1)):   
         # Image
         input_image_fp = os.path.join(dataset_path, test_image_list[i])
         input_image = utils.read_image(input_image_fp)
 
         # Sparse depth
         input_sparse_depth_fp = input_image_fp.replace("image", "sparse_depth")
-        input_sparse_depth = np.array(Image.open(input_sparse_depth_fp), dtype=np.float32) / 256.0
+        input_sparse_depth = np.array(Image.open(input_sparse_depth_fp), dtype=np.float32) / 1000.0
         input_sparse_depth[input_sparse_depth <= 0] = 0.0
         
         #patches = divide_image_into_patches(input_image, 43, input_sparse_depth)
@@ -310,7 +310,7 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
 
         # target (ground truth) depth
         target_depth_fp = input_image_fp.replace("image", "ground_truth")
-        target_depth = np.array(Image.open(target_depth_fp), dtype=np.float32) / 256.0
+        target_depth = np.array(Image.open(target_depth_fp), dtype=np.float32) / 1000.0
         target_depth[target_depth <= 0] = 0.0
 
         # target depth valid/mask
@@ -320,7 +320,10 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
         target_depth[~mask] = np.inf  # set invalid depth
         target_depth = 1.0 / target_depth
 
-        sampled_input_sparse = uniform_sample_depth(600, target_depth, input_sparse_depth, input_image, display=True)
+        viz_image = input_image.copy()
+        visualize_sparse_depth(input_sparse_depth, viz_image)
+        
+        sampled_input_sparse = uniform_sample_depth(800, target_depth, input_sparse_depth, input_image, display=True)
         #depth_infer_inv = method.infer_depth(input_image)
         #viz_bound, infer_depth_patches_inv, sparse_depth_patches, mask_array = get_superpixel(input_image, depth_infer_inv, input_sparse_depth)
         
@@ -464,13 +467,13 @@ def evaluate(dataset_path, depth_predictor, nsamples, sml_model_path):
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
 #/media/saimouli/RPNG_FLASH_4/datasets/VOID_150
-    parser.add_argument('-ds', '--dataset-path', type=str, default='/media/saimouli/RPNG_FLASH_4/data/VOID_small/table1',
+    parser.add_argument('-ds', '--dataset-path', type=str, default='/home/rpng/datasets/splat_vins/table1',
                         help='Path to VOID release dataset.')
     parser.add_argument('-dp', '--depth-predictor', type=str, default='dpt_hybrid', 
                         help='Name of depth predictor to use in pipeline.')
     parser.add_argument('-ns', '--nsamples', type=int, default=150, 
                         help='Number of sparse metric depth samples available.')
-    parser.add_argument('-sm', '--sml-model-path', type=str, default='/home/saimouli/Documents/github/VI_Depth_sai/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt', 
+    parser.add_argument('-sm', '--sml-model-path', type=str, default='/home/rpng/Documents/sai_ws/splat_vins_repos_test/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt', 
                         help='Enter path of weigths of SML model.')
 
     args = parser.parse_args()
