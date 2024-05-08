@@ -8,7 +8,7 @@ class BaseModel(torch.nn.Module):
         Args:
             path (str): file path
         """
-        parameters = torch.load(path, map_location=torch.device('cpu'))
+        parameters = torch.load(path, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
         if "optimizer" in parameters:
             parameters = parameters["model"]
@@ -24,3 +24,11 @@ class BaseModel(torch.nn.Module):
 
         else:
             self.load_state_dict(parameters)
+            
+    def save(self, path):
+        """Save model to file.
+
+        Args:
+            path (str): file path
+        """
+        torch.save(self.state_dict(), path)

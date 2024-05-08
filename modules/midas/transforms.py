@@ -136,6 +136,20 @@ class Resize(object):
             )
 
         if self.__resize_target:
+            
+            if "gt_depth" in sample:
+                sample["gt_depth"] = cv2.resize(
+                    sample["gt_depth"], 
+                    (width, height), 
+                    interpolation=cv2.INTER_NEAREST
+                )
+            
+            if "sparse_depth" in sample:
+                sample["sparse_depth"] = cv2.resize(
+                    sample["sparse_depth"], 
+                    (width, height), 
+                    interpolation=cv2.INTER_NEAREST
+                )
 
             if "depth" in sample:
                 sample["depth"] = cv2.resize(

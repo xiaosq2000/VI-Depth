@@ -27,7 +27,7 @@ class MidasNet_small_videpth(BaseModel):
     """Network for monocular depth estimation.
     """
 
-    def __init__(self, path=None, features=64, backbone="efficientnet_lite3", non_negative=False, exportable=True, channels_last=False, align_corners=True,
+    def __init__(self, device = 'cuda', path=None, features=64, backbone="efficientnet_lite3", non_negative=False, exportable=True, channels_last=False, align_corners=True,
         blocks={'expand': True}, in_channels=2, regress='r', min_pred=None, max_pred=None):
         """Init.
 
@@ -85,6 +85,8 @@ class MidasNet_small_videpth(BaseModel):
         
         if path:
             self.load(path)
+        
+        self.to(device)
 
 
     def forward(self, x, d):
