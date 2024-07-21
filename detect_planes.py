@@ -65,7 +65,19 @@ def detect_normals(depth_image, input_sparse_depth, input_image, display=False):
         plt.subplot(1, 3, 2)  # 1 row, 2 columns, 2nd subplot
         plt.imshow(normal_bgr)
         plt.subplot(1, 3, 3)
-        plt.imshow(depth_image) 
+        plt.imshow(depth_image)
+
+        plt.figure()
+        plt.title('Normal X')
+        plt.imshow(normal_bgr[:,:,0])
+        plt.figure()
+        plt.title('Normal Y')
+        plt.imshow(normal_bgr[:,:,1])
+        plt.figure()
+        plt.title('Normal Z')
+        plt.imshow(normal_bgr[:,:,2])
+
+
         plt.show()
     return normal
 
@@ -92,6 +104,44 @@ def find_planes(depth_points, normals):
 
     return planes
 
+def plot_surface_normals(rgb_image, normals, scale=10):
+    fig, ax = plt.subplots()
+    ax.imshow(rgb_image)
+
+    # Plot surface normals as arrows
+    for y in range(0, normals.shape[0], 10):
+        for x in range(0, normals.shape[1], 10):
+            if np.isnan(normals[y, x]).any():
+                continue
+            ax.arrow(x, y, normals[y, x, 0] * scale, normals[y, x, 1] * scale,
+                     head_width=2, head_length=2, fc='r', ec='r')
+
+    ax.axis('off')
+    plt.show()
+
+def cluster_normals(normals, rgb_image, scale=10, n_clusters=4):
+    h, w, _ = normals.shape
+    normals_reshape = normals.reshape(-1, 3) * scale
+    kmeans = KMeans(n_clusters=n_clusters)
+    kmeans.fit(normals_reshape)
+    cluster_centers = kmeans.cluster_centers_
+    cluster_labels = kmeans.labels_
+
+    # Plot surface normals as arrows, colored by cluster
+    fig, ax = plt.subplots()
+    ax.imshow(rgb_image)
+
+    for y in range(0, normals.shape[0], 10):
+        for x in range(0, normals.shape[1], 10):
+            if np.isnan(normals[y, x]).any():
+                continue
+            cluster_label = cluster_labels[y*w//10 + x//10]
+            color = plt.cm.jet(cluster_label / n_clusters)  # Use jet colormap for coloring
+            ax.arrow(x, y, normals[y, x, 0] * scale, normals[y, x, 1] * scale,
+                     head_width=2, head_length=2, fc=color, ec=color)
+
+    ax.axis('off')
+    plt.show()
 
 def run(dataset_path, depth_predictor, nsamples, sml_model_path, 
         min_pred, max_pred, min_depth, max_depth, 
@@ -112,7 +162,7 @@ def run(dataset_path, depth_predictor, nsamples, sml_model_path,
     avg_error_w_int_depth = metrics.ErrorMetricsAverager()
     avg_error_w_pred = metrics.ErrorMetricsAverager()
 
-    for i in tqdm(range(0,4,1)):
+    for i in tqdm(range(0,2,1)):
     #for i in tqdm(range(len(test_image_list))):
         # Image
         input_image_fp = os.path.join(dataset_path, test_image_list[i])
@@ -139,9 +189,10 @@ def run(dataset_path, depth_predictor, nsamples, sml_model_path,
         
         depth_infer_inv = method.infer_depth(input_image)
 
-        normals = detect_normals(depth_infer_inv, input_sparse_depth, input_image, True)
-        
-        normals = detect_normals(target_depth, input_sparse_depth, input_image, True)
+        #normals_cam = detect_normals(depth_infer_inv, input_sparse_depth, input_image, True)
+        #plot_surface_normals(input_image, normals_cam, scale=10)
+        #cluster_normals(normals_cam, input_image, scale=10, n_clusters=30)
+        #normals = detect_normals(target_depth, input_sparse_depth, input_image, True)
         
         output = method.run(input_image, input_sparse_depth, validity_map, device)
         

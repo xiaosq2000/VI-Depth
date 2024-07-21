@@ -10,11 +10,13 @@ import modules.midas.utils as utils
 from modules.interpolator import Interpolator2D
 
 import utils.log_utils as log_utils
-from utils.loss import compute_loss
+from utils.loss import compute_loss, compute_consistency_loss, compute_metric_loss
 from utils_eval import compute_ls_solution
 from data.SML_dataset import SML_dataset
+from data.SML_consistent_dataset import SML_consistent_dataset
 
 import time
+import matplotlib.pyplot as plt
 
 def infer_depth(DepthModel, device, input_image, depth_model_transform):
     DepthModel.eval()
@@ -41,6 +43,273 @@ def infer_depth(DepthModel, device, input_image, depth_model_transform):
         )
     return depth_pred
     
+def train_scale_consistency(
+        # data input
+        train_dataset_path,
+        
+        # training
+        learning_rates,
+        learning_schedule,
+        batch_size,
+        n_step_summary,
+        n_step_per_checkpoint,
+        
+        # loss
+        loss_func,
+        w_smoothness,
+        loss_smoothness_kernel_size,
+        
+        # model
+        chkpt_path,
+        min_pred_depth,
+        max_pred_depth,
+        checkpoint_dir,
+        n_threads,
+        DepthModel,
+):
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    
+    depth_model_checkpoint_path = os.path.join(checkpoint_dir, 'model-{}.pth')
+    log_path = os.path.join(checkpoint_dir, 'results.txt')
+    event_path = os.path.join(checkpoint_dir, 'events')
+    
+    log_utils.log_params(log_path, locals())
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    train_dataloader = torch.utils.data.DataLoader(
+        SML_consistent_dataset(
+            root = train_dataset_path),
+        batch_size=batch_size,
+        num_workers=n_threads)
+    
+    #n_train_step = learning_schedule[-1] * np.ceil(n_train_sample / batch_size).astype(np.int32)
+    
+    # transform
+    model_transforms = transforms.get_transforms('dpt_hybrid', 'void', '150')
+    depth_model_transform = model_transforms["depth_model"]
+    ScaleMapLearner_transform = model_transforms["sml_model"]
+
+    # build SML model
+    ScaleMapLearner = MidasNet_small_videpth(
+        device = device,
+        min_pred = min_pred_depth,
+        max_pred = max_pred_depth,
+    )
+
+    '''
+    Train model
+    '''
+    # init optim with learning rate
+    learning_schedule_pos = 0
+    learning_rate = learning_rates[0]
+
+    # Initialize optimizer with starting learning rate
+    parameters_model = list(ScaleMapLearner.parameters())
+    optimizer = torch.optim.Adam([
+        {
+            'params': parameters_model
+        }],
+        lr=learning_rate)
+    
+    # Set up tensorboard summary writers
+    train_summary_writer = SummaryWriter(event_path + '-train')
+
+    # Start training
+    train_step = 0
+
+    if chkpt_path is not None and chkpt_path != '':
+        ScaleMapLearner.load(chkpt_path)
+    
+    for g in optimizer.param_groups:
+        g['lr'] = learning_rate
+    
+    time_start = time.time()
+
+    print('Start training', log_path)
+    for epoch in range(1, learning_schedule[-1] + 1):
+        print('Epoch', epoch)
+
+        #set learning rate
+        if epoch > learning_schedule[learning_schedule_pos]:
+            learning_schedule_pos = learning_schedule_pos + 1
+            learning_rate = learning_rates[learning_schedule_pos]
+            
+            #update learning rate of all optimizers
+            for g in optimizer.param_groups:
+                g['lr'] = learning_rate
+        
+        # train the mode
+        for batch_data in train_dataloader:
+            train_step += 1
+            
+            # Move each element in the batch to the device
+            batch_data = [item.to(device) if torch.is_tensor(item) else item for item in batch_data]
+
+
+            tgt_img, tgt_gt_depth, tgt_ga_depth, tgt_interp, \
+                ref_img, ref_ga_depth, ref_interp, ref_gt_depth,\
+                tgt_pose, ref_pose, intrinsics = batch_data
+            
+            ## visualize the tgt_img, and ref_im
+            # tgt_img_test = tgt_img.squeeze().cpu().numpy()
+            # ref_img0_test = ref_img[0].squeeze().cpu().numpy()
+            # ref_img1_test = ref_img[1].squeeze().cpu().numpy()
+            # plt.figure()
+            # plt.imshow(tgt_img_test) #1
+            # plt.figure()
+            # plt.imshow(ref_img0_test) #0
+            # plt.figure()
+            # plt.imshow(ref_img1_test) #2
+            # plt.show()
+            
+            #TODO: below code assumes sequence of 3 modify to be general
+            # each time empty batch
+            batch_x_tgt = []; batch_d_tgt = []; batch_image_tgt = []; batch_gt_tgt = []
+            batch_x_ref0 = []; batch_d_ref0 = []; batch_image_ref0 = []; batch_gt_ref0 = []
+            batch_x_ref1 = []; batch_d_ref1 = []; batch_image_ref1 = []; batch_gt_ref1 = []
+
+            #ref0 (t-1), tgt_img (t), ref1 (t+1)
+            for i in range(batch_size):
+
+                sample_tgt = {
+                    'image': tgt_img[i].squeeze().cpu().numpy(),
+                    'gt_depth': tgt_gt_depth[i].squeeze().cpu().numpy(),
+                    'int_depth': tgt_ga_depth[i].squeeze().cpu().numpy(),
+                    'int_scales': tgt_interp[i].squeeze().cpu().numpy(),
+                    'int_depth_no_tf': tgt_ga_depth[i].squeeze().cpu().numpy()
+                }
+
+                sample_ref0 = {
+                    'image': ref_img[0][i].squeeze().cpu().numpy(),
+                    'gt_depth': ref_gt_depth[0][i].squeeze().cpu().numpy(),
+                    'int_depth': ref_ga_depth[0][i].squeeze().cpu().numpy(),
+                    'int_scales': ref_interp[0][i].squeeze().cpu().numpy(),
+                    'int_depth_no_tf': ref_ga_depth[0][i].squeeze().cpu().numpy()
+                }
+
+                sample_ref1 = {
+                    'image': ref_img[1][i].squeeze().cpu().numpy(),
+                    'gt_depth': ref_gt_depth[1][i].squeeze().cpu().numpy(),
+                    'int_depth': ref_ga_depth[1][i].squeeze().cpu().numpy(),
+                    'int_scales': ref_interp[1][i].squeeze().cpu().numpy(),
+                    'int_depth_no_tf': ref_ga_depth[1][i].squeeze().cpu().numpy()
+                }
+
+                sample_tgt = ScaleMapLearner_transform(sample_tgt)
+                sample_ref0 = ScaleMapLearner_transform(sample_ref0)
+                sample_ref1 = ScaleMapLearner_transform(sample_ref1)
+
+                x_tgt = torch.cat((sample_tgt['int_depth'], sample_tgt['int_scales']), dim=0)
+                x_tgt = x_tgt.to(device)
+                d_tgt = sample_tgt['int_depth_no_tf'].to(device)
+
+                x_ref0 = torch.cat((sample_ref0['int_depth'], sample_ref0['int_scales']), dim=0)
+                x_ref0 = x_ref0.to(device)
+                d_ref0 = sample_ref0['int_depth_no_tf'].to(device)
+
+                x_ref1 = torch.cat((sample_ref1['int_depth'], sample_ref1['int_scales']), dim=0)
+                x_ref1 = x_ref1.to(device)
+                d_ref1 = sample_ref1['int_depth_no_tf'].to(device)
+
+                batch_x_tgt.append(x_tgt)
+                batch_d_tgt.append(d_tgt)
+                batch_image_tgt.append(sample_tgt['image'].to(device))
+                batch_gt_tgt.append(sample_tgt['gt_depth'].to(device))
+
+                batch_x_ref0.append(x_ref0)
+                batch_d_ref0.append(d_ref0)
+                batch_image_ref0.append(sample_ref0['image'].to(device))
+                batch_gt_ref0.append(sample_ref0['gt_depth'].to(device))
+
+                batch_x_ref1.append(x_ref1)
+                batch_d_ref1.append(d_ref1)
+                batch_image_ref1.append(sample_ref1['image'].to(device))
+                batch_gt_ref1.append(sample_ref1['gt_depth'].to(device))
+
+
+            x_tgt = torch.stack(batch_x_tgt, 0)
+            x_ref0 = torch.stack(batch_x_ref0, 0)
+            x_ref1 = torch.stack(batch_x_ref1, 0)
+
+            d_tgt = torch.stack(batch_d_tgt, 0)
+            d_ref0 = torch.stack(batch_d_ref0, 0)
+            d_ref1 = torch.stack(batch_d_ref1, 0)
+
+            batch_image_tgt = torch.stack(batch_image_tgt, 0)
+            batch_gt_tgt = torch.stack(batch_gt_tgt, 0)
+            batch_image_ref = torch.stack(batch_image_ref0 + batch_image_ref1, dim=0)
+            batch_gt_ref = torch.stack(batch_gt_ref0 + batch_gt_ref1, dim=0)
+
+            # Perform forward pass
+            sml_pred_tgt, sml_scales = ScaleMapLearner.forward(x_tgt, d_tgt)
+            sml_pred_ref0, sml_scales_ref0 = ScaleMapLearner.forward(x_ref0, d_ref0)
+            sml_pred_ref1, sml_scales_ref1 = ScaleMapLearner.forward(x_ref1, d_ref1)
+
+            # Inverse depth to depth
+            d_tgt, d_ref0, d_ref1 = 1.0 / d_tgt, 1.0 / d_ref0, 1.0 / d_ref1
+            sml_pred_tgt, sml_pred_ref0, sml_pred_ref1 = 1.0 / sml_pred_tgt, 1.0 / sml_pred_ref0, 1.0 / sml_pred_ref1
+
+            ref_output_depth = [sml_pred_ref0, sml_pred_ref1]
+            tgt_output_depth = sml_pred_tgt
+
+            #get poses from tgt to ref0, tgt to ref1
+            pose_CttoG = tgt_pose; pose_Cref0toG = ref_pose[0]
+            pose_Cref1toG = ref_pose[1]
+            aux_mat = torch.tensor([0,0,0,1]).type_as(pose_CttoG).unsqueeze(0).unsqueeze(0).repeat(batch_size,1,1)
+            pose_CttoG = torch.cat((pose_CttoG, aux_mat), dim=1)
+            pose_Cref0toG = torch.cat((pose_Cref0toG, aux_mat), dim=1)
+            pose_Cref1toG = torch.cat((pose_Cref1toG, aux_mat), dim=1)
+
+            pose_GtoCref0 = torch.inverse(pose_Cref0toG)
+            pose_GtoCref1 = torch.inverse(pose_Cref1toG)
+
+            pose_CttoRef0 = torch.matmul(pose_GtoCref0, pose_CttoG)
+            pose_CttoRef1 = torch.matmul(pose_GtoCref1, pose_CttoG)
+            poses = [pose_CttoRef0, pose_CttoRef1]
+
+            pose_CttoRef0_inv = torch.inverse(pose_CttoRef0)
+            pose_CttoRef1_inv = torch.inverse(pose_CttoRef1)
+            poses_inv = [pose_CttoRef0_inv, pose_CttoRef1_inv]
+
+            photo_loss, geomentry_loss = compute_consistency_loss(batch_image_ref, batch_image_tgt,
+                                            batch_gt_tgt, batch_gt_ref,
+                                            poses, poses_inv,
+                                            ref_output_depth, tgt_output_depth,
+                                            intrinsics,
+                                            loss_func,
+                                            w_smoothness,
+                                            loss_smoothness_kernel_size)
+
+            #prepare inputs 
+            image = [batch_image_tgt, batch_image_ref]
+            output_depth = [sml_pred_tgt, sml_pred_ref0, sml_pred_ref1]
+            gt_depths = [batch_gt_tgt, batch_gt_ref]
+            
+            metric_loss = compute_metric_loss(image, output_depth, gt_depths, 
+                                              loss_func, w_smoothness, 
+                                              loss_smoothness_kernel_size)
+            
+            loss = 0 * photo_loss + 0.3 * geomentry_loss + 0.7 * metric_loss
+            
+            print('{}/{} epoch:{}: {}'.format(train_step % n_train_step, n_train_step, epoch, loss.item()))
+
+            # Compute gradient and backpropagate
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if (train_step % n_step_per_checkpoint) == 0:
+                time_elapse = (time.time() - time_start) / 3600
+                time_remain = (n_train_step - train_step) * time_elapse / train_step
+                
+                print('Step={:6}/{} Loss={:.5f} Time Elapsed={:.2f}h Time Remaining={:.2f}h'.format(
+                    train_step, n_train_step, loss.item(), time_elapse, time_remain), log_path)
+                # Save chkpt
+                ScaleMapLearner.save(depth_model_checkpoint_path.format(train_step))
+    
+    # save checkpoints
+    ScaleMapLearner.save(depth_model_checkpoint_path.format(train_step))
 
 def train(
         # data input
@@ -228,10 +497,10 @@ def train(
                 torch.ones_like(batch_gt))
             
             loss, loss_info = compute_loss(
-                image=d,
+                image=batch_image,
                 output_depth=sml_pred,
                 ground_truth=batch_gt,
-                loss_func=loss_func,
+                loss_func=loss_func, #smooth_l1 is less sensitive to error
                 w_smoothness=w_smoothness,
                 loss_smoothness_kernel_size=loss_smoothness_kernel_size
             )
@@ -439,8 +708,9 @@ def log_summary(summary_writer,
                 global_step=step)
             
 if __name__ == '__main__':
-    train_root = '/home/rpng/datasets/splat_vins/table1'
-    result_root = '/home/rpng/datasets/splat_vins/table1/results'
+    train_root = '/media/saimouli/Data6T/datasets/VOID_150_test'
+    #'/media/saimouli/RPNG_FLASH_4/datasets/VOID_150'
+    result_root = '/media/saimouli/Data6T/datasets/VOID_150_test/results'
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     
     image_path = os.path.join(train_root, 'image')
@@ -448,14 +718,39 @@ if __name__ == '__main__':
     sparse_depth_path = os.path.join(train_root, 'sparse_depth')    
     DepthModel = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
     
-    train(
+    # train(
+    #     # data load
+    #     train_dataset_path = train_root,
+        
+    #     # train params
+    #     learning_rates = [2e-4,1e-4],
+    #     learning_schedule = [20,80],
+    #     batch_size = 4,
+    #     n_step_summary = 5,
+    #     n_step_per_checkpoint = 100,
+        
+    #     # loss settings
+    #     loss_func = 'smoothl1',
+    #     w_smoothness = 0.0,
+    #     loss_smoothness_kernel_size = -1,
+        
+    #     # model
+    #     chkpt_path = '/home/rpng/Documents/sai_ws/splat_vins_repos_test/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt',
+    #     min_pred_depth = 0.1,
+    #     max_pred_depth = 8.0,
+    #     checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),
+    #     n_threads = 3,
+    #     DepthModel = DepthModel,
+    # )
+
+    train_scale_consistency(
         # data load
         train_dataset_path = train_root,
         
         # train params
         learning_rates = [2e-4,1e-4],
         learning_schedule = [20,80],
-        batch_size = 4,
+        batch_size = 1,
         n_step_summary = 5,
         n_step_per_checkpoint = 100,
         
@@ -465,7 +760,7 @@ if __name__ == '__main__':
         loss_smoothness_kernel_size = -1,
         
         # model
-        chkpt_path = '/home/rpng/Documents/sai_ws/splat_vins_repos_test/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt',
+        chkpt_path = '/home/saimouli/Documents/github/VI_Depth_sai/weights/sml_model.dpredictor.midas_small.nsamples.150.ckpt',
         min_pred_depth = 0.1,
         max_pred_depth = 8.0,
         checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),

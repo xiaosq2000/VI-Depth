@@ -15,6 +15,7 @@ from tf import transformations as tf_trans
 from scipy.spatial.transform import Rotation as R
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Pose
+from nav_msgs.msg import Path
 
 class PointCloudVisualizer:
     def __init__(self):
@@ -24,38 +25,60 @@ class PointCloudVisualizer:
         self.pub_sparse = rospy.Publisher('sparse_pts', PointCloud2, queue_size=10)
         self.pub_refine = rospy.Publisher('pc_refine', PointCloud2, queue_size=10)
         self.marker_array_pub = rospy.Publisher('path_markers', MarkerArray, queue_size=10)
+        self.path_pub = rospy.Publisher('path_viz', Path, queue_size=10)
         self.pub_normals = rospy.Publisher('pc_normals', PointCloud2, queue_size=10)
         # self.tf_buffer = tf2_ros.Buffer()
         # self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         # self.tf_broadcaster = tf2_ros.TransformBroadcaster()
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
 
+
     def publish_path(self, poses):
-        # Create a marker array message
-        marker_array_msg = MarkerArray()
+        # Create a Path message
+        path_msg = Path()
         
-        # Create a marker message for each pose in the array
-        for i, pose in enumerate(poses):
-            marker = Marker()
-            marker.header.frame_id = "global"
-            marker.header.stamp = rospy.Time.now()
-            marker.ns = "path_markers"
-            marker.id = i
-            marker.type = Marker.ARROW
-            marker.action = Marker.ADD
-            marker.pose = pose
-            marker.scale.x = 0.2
-            marker.scale.y = 0.05
-            marker.scale.z = 0.05
-            marker.color.a = 1.0
-            marker.color.r = 1.0
-            marker.color.g = 0.0
-            marker.color.b = 0.0
+        # Set the header
+        path_msg.header.frame_id = "global"
+        path_msg.header.stamp = rospy.Time.now()
+
+        # Create a PoseStamped message for each pose in the array
+        for pose in poses:
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = "global"
+            pose_stamped.header.stamp = rospy.Time.now()
+            pose_stamped.pose = pose
+
+            # Append to the path message
+            path_msg.poses.append(pose_stamped)
+        
+        # Publish the path message
+        self.path_pub.publish(path_msg)
+        #print("publish path")
+        # # Create a marker array message
+        # marker_array_msg = MarkerArray()
+        
+        # # Create a marker message for each pose in the array
+        # for i, pose in enumerate(poses):
+        #     marker = Marker()
+        #     marker.header.frame_id = "global"
+        #     marker.header.stamp = rospy.Time.now()
+        #     marker.ns = "path_markers"
+        #     marker.id = i
+        #     marker.type = Marker.ARROW
+        #     marker.action = Marker.ADD
+        #     marker.pose = pose
+        #     marker.scale.x = 0.2
+        #     marker.scale.y = 0.05
+        #     marker.scale.z = 0.05
+        #     marker.color.a = 1.0
+        #     marker.color.r = 1.0
+        #     marker.color.g = 0.0
+        #     marker.color.b = 0.0
             
-            marker_array_msg.markers.append(marker)
+        #     marker_array_msg.markers.append(marker)
         
-        # Publish the marker array
-        self.marker_array_pub.publish(marker_array_msg)
+        # # Publish the marker array
+        # self.marker_array_pub.publish(marker_array_msg)
     
     def pose_callback(self, p_CinG, R_GtoC):
         # Create a transform message

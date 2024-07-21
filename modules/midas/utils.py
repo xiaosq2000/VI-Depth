@@ -109,7 +109,7 @@ def read_image(path):
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     return img
 
