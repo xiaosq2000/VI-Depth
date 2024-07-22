@@ -2,7 +2,8 @@ import numpy as np
 import torch.utils.data
 import modules.midas.utils as utils
 from PIL import Image
-from path import Path
+#from path import Path
+from pathlib import Path
 
 def load_input_image(input_image_fp):
     return utils.read_image(input_image_fp)
@@ -56,25 +57,32 @@ class SML_consistent_dataset(torch.utils.data.Dataset):
             intrinsics = np.genfromtxt(
                 scene/'K.txt').astype(np.float32).reshape((3, 3))
 
-            images_path = scene + '/image'
-            imgs = sorted(images_path.files('*.png'))
+            # Load image paths
+            images_path = scene / 'image'
+            imgs = sorted(images_path.glob('*.png'))
 
-            frame_index = [int(index) for index in open(scene/'frame_index.txt')]
+            # Load frame index
+            frame_index = [int(index) for index in open(scene / 'frame_index.txt')]
             imgs = [imgs[d] for d in frame_index]
 
-            ga_depth_inv = sorted((scene/'ga_depth_inv').files('*.npy'))
+            # Load ga depth inverse
+            ga_depth_inv_path = scene / 'ga_depth_inv'
+            ga_depth_inv = sorted(ga_depth_inv_path.glob('*.npy'))
             ga_depth_inv = [ga_depth_inv[d] for d in frame_index]
 
-            # interpolated scaffolding
-            interp_depth = sorted((scene/'interp_scale').files('*.npy'))
+            # Load interpolated scaffolding
+            interp_depth_path = scene / 'interp_scale'
+            interp_depth = sorted(interp_depth_path.glob('*.npy'))
             interp_depth = [interp_depth[d] for d in frame_index]
 
-            #load pose
-            poses = sorted((scene/'absolute_pose').files('*.txt'))
+            # Load poses
+            poses_path = scene / 'absolute_pose'
+            poses = sorted(poses_path.glob('*.txt'))
             poses = [poses[d] for d in frame_index]
             
             #get gt depths
-            gt_depth = sorted((scene/'ground_truth').files('*.png'))
+            gt_depth_path = scene / 'ground_truth'
+            gt_depth = sorted(gt_depth_path.glob('*.png'))
             gt_depth = [gt_depth[d] for d in frame_index]
 
             if len(imgs) < sequence_length:
@@ -108,16 +116,16 @@ class SML_consistent_dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         sample = self.samples[index]
-        tgt_img = load_input_image(sample['tgt_img'])
-        tgt_gt_depth = load_sparse_depth(sample['tgt_gt_depth'], depth_scale=256.0)
-        tgt_ga_depth = load_depth_image_from_npy(sample['tgt_ga_depth'])
-        tgt_interp = load_depth_image_from_npy(sample['tgt_interp'])
-        tgt_pose = np.loadtxt(sample['tgt_pose'])
+        tgt_img = load_input_image(str(sample['tgt_img']))
+        tgt_gt_depth = load_sparse_depth(str(sample['tgt_gt_depth']), depth_scale=256.0)
+        tgt_ga_depth = load_depth_image_from_npy(str(sample['tgt_ga_depth']))
+        tgt_interp = load_depth_image_from_npy(str(sample['tgt_interp']))
+        tgt_pose = np.loadtxt(str(sample['tgt_pose']))
 
-        ref_img = [load_input_image(ref_img) for ref_img in sample['ref_imgs']]
-        ref_ga_depth = [load_depth_image_from_npy(ref_ga_depth) for ref_ga_depth in sample['ref_ga_depth']]
-        ref_interp = [load_depth_image_from_npy(ref_interp) for ref_interp in sample['ref_interp']]
-        ref_gt_depth = [load_sparse_depth(ref_gt_depth, depth_scale=256.0) for ref_gt_depth in sample['ref_gt_depth']]
+        ref_img = [load_input_image(str(ref_img)) for ref_img in sample['ref_imgs']]
+        ref_ga_depth = [load_depth_image_from_npy(str(ref_ga_depth)) for ref_ga_depth in sample['ref_ga_depth']]
+        ref_interp = [load_depth_image_from_npy(str(ref_interp)) for ref_interp in sample['ref_interp']]
+        ref_gt_depth = [load_sparse_depth(str(ref_gt_depth), depth_scale=256.0) for ref_gt_depth in sample['ref_gt_depth']]
         ref_pose = [np.loadtxt(pose) for pose in sample['ref_pose']]
         intrinsics = np.copy(sample['intrinsics'])
         

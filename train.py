@@ -10,7 +10,7 @@ import modules.midas.utils as utils
 from modules.interpolator import Interpolator2D
 
 import utils.log_utils as log_utils
-from utils.loss import compute_loss, compute_consistency_loss, compute_metric_loss
+from utils.loss import compute_loss, compute_consistency_loss #, compute_metric_loss
 from utils_eval import compute_ls_solution
 from data.SML_dataset import SML_dataset
 from data.SML_consistent_dataset import SML_consistent_dataset
@@ -140,6 +140,8 @@ def train_scale_consistency(
                 g['lr'] = learning_rate
         
         # train the mode
+        # tgt_img, tgt_gt_depth, tgt_ga_depth, tgt_interp, ref_img, \
+        #             ref_ga_depth, ref_interp, ref_gt_depth, tgt_pose, ref_pose, intrinsics
         for batch_data in train_dataloader:
             train_step += 1
             
@@ -152,16 +154,19 @@ def train_scale_consistency(
                 tgt_pose, ref_pose, intrinsics = batch_data
             
             ## visualize the tgt_img, and ref_im
-            # tgt_img_test = tgt_img.squeeze().cpu().numpy()
-            # ref_img0_test = ref_img[0].squeeze().cpu().numpy()
-            # ref_img1_test = ref_img[1].squeeze().cpu().numpy()
-            # plt.figure()
-            # plt.imshow(tgt_img_test) #1
-            # plt.figure()
-            # plt.imshow(ref_img0_test) #0
-            # plt.figure()
-            # plt.imshow(ref_img1_test) #2
-            # plt.show()
+            tgt_img_test = tgt_img.squeeze().cpu().numpy()
+            ref_img0_test = ref_img[0].squeeze().cpu().numpy()
+            ref_img1_test = ref_img[1].squeeze().cpu().numpy()
+            plt.figure()
+            plt.title("Tgt Img")
+            plt.imshow(tgt_img_test) #1
+            plt.figure()
+            plt.title("Ref 0 img")
+            plt.imshow(ref_img0_test) #0
+            plt.figure()
+            plt.title("Ref 1 img")
+            plt.imshow(ref_img1_test) #2
+            plt.show()
             
             #TODO: below code assumes sequence of 3 modify to be general
             # each time empty batch
@@ -254,8 +259,8 @@ def train_scale_consistency(
             tgt_output_depth = sml_pred_tgt
 
             #get poses from tgt to ref0, tgt to ref1
-            pose_CttoG = tgt_pose; pose_Cref0toG = ref_pose[0]
-            pose_Cref1toG = ref_pose[1]
+            pose_CttoG = tgt_pose.to(device); pose_Cref0toG = ref_pose[0].to(device);
+            pose_Cref1toG = ref_pose[1].to(device)
             aux_mat = torch.tensor([0,0,0,1]).type_as(pose_CttoG).unsqueeze(0).unsqueeze(0).repeat(batch_size,1,1)
             pose_CttoG = torch.cat((pose_CttoG, aux_mat), dim=1)
             pose_Cref0toG = torch.cat((pose_Cref0toG, aux_mat), dim=1)
@@ -286,13 +291,13 @@ def train_scale_consistency(
             output_depth = [sml_pred_tgt, sml_pred_ref0, sml_pred_ref1]
             gt_depths = [batch_gt_tgt, batch_gt_ref]
             
-            metric_loss = compute_metric_loss(image, output_depth, gt_depths, 
+            metric_loss = compute_loss(image, output_depth, gt_depths, 
                                               loss_func, w_smoothness, 
                                               loss_smoothness_kernel_size)
             
             loss = 0 * photo_loss + 0.3 * geomentry_loss + 0.7 * metric_loss
             
-            print('{}/{} epoch:{}: {}'.format(train_step % n_train_step, n_train_step, epoch, loss.item()))
+           #print('{}/{} epoch:{}: {}'.format(train_step % n_train_step, n_train_step, epoch, loss.item()))
 
             # Compute gradient and backpropagate
             optimizer.zero_grad()
@@ -708,62 +713,66 @@ def log_summary(summary_writer,
                 global_step=step)
             
 if __name__ == '__main__':
-    train_root = '/media/saimouli/Data6T/datasets/VOID_150_test'
+    train_root = '/media/vision/RPNG_FLASH_4/void_150_sample'
     #'/media/saimouli/RPNG_FLASH_4/datasets/VOID_150'
-    result_root = '/media/saimouli/Data6T/datasets/VOID_150_test/results'
+    result_root = '/media/vision/RPNG_FLASH_4/void_150_sample/results'
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    sml_ckt_path = '/home/vision/Documents/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt'
     
     image_path = os.path.join(train_root, 'image')
     gt_path = os.path.join(train_root, 'ground_truth')
     sparse_depth_path = os.path.join(train_root, 'sparse_depth')    
     DepthModel = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
-    
-    # train(
-    #     # data load
-    #     train_dataset_path = train_root,
-        
-    #     # train params
-    #     learning_rates = [2e-4,1e-4],
-    #     learning_schedule = [20,80],
-    #     batch_size = 4,
-    #     n_step_summary = 5,
-    #     n_step_per_checkpoint = 100,
-        
-    #     # loss settings
-    #     loss_func = 'smoothl1',
-    #     w_smoothness = 0.0,
-    #     loss_smoothness_kernel_size = -1,
-        
-    #     # model
-    #     chkpt_path = '/home/rpng/Documents/sai_ws/splat_vins_repos_test/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt',
-    #     min_pred_depth = 0.1,
-    #     max_pred_depth = 8.0,
-    #     checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),
-    #     n_threads = 3,
-    #     DepthModel = DepthModel,
-    # )
 
-    train_scale_consistency(
-        # data load
-        train_dataset_path = train_root,
-        
-        # train params
-        learning_rates = [2e-4,1e-4],
-        learning_schedule = [20,80],
-        batch_size = 1,
-        n_step_summary = 5,
-        n_step_per_checkpoint = 100,
-        
-        # loss settings
-        loss_func = 'smoothl1',
-        w_smoothness = 0.0,
-        loss_smoothness_kernel_size = -1,
-        
-        # model
-        chkpt_path = '/home/saimouli/Documents/github/VI_Depth_sai/weights/sml_model.dpredictor.midas_small.nsamples.150.ckpt',
-        min_pred_depth = 0.1,
-        max_pred_depth = 8.0,
-        checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),
-        n_threads = 3,
-        DepthModel = DepthModel,
-    )
+    train_consistency = True
+    
+    if train_consistency == False:
+        train(
+            # data load
+            train_dataset_path = train_root,
+            
+            # train params
+            learning_rates = [2e-4,1e-4],
+            learning_schedule = [20,80],
+            batch_size = 4,
+            n_step_summary = 5,
+            n_step_per_checkpoint = 100,
+            
+            # loss settings
+            loss_func = 'smoothl1',
+            w_smoothness = 0.0,
+            loss_smoothness_kernel_size = -1,
+            
+            # model
+            chkpt_path = sml_ckt_path,
+            min_pred_depth = 0.1,
+            max_pred_depth = 8.0,
+            checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),
+            n_threads = 3,
+            DepthModel = DepthModel,
+        )
+    else:
+        train_scale_consistency(
+            # data load
+            train_dataset_path = train_root,
+            
+            # train params
+            learning_rates = [2e-4,1e-4],
+            learning_schedule = [20,80],
+            batch_size = 1,
+            n_step_summary = 5,
+            n_step_per_checkpoint = 100,
+            
+            # loss settings
+            loss_func = 'smoothl1',
+            w_smoothness = 0.0,
+            loss_smoothness_kernel_size = -1,
+            
+            # model
+            chkpt_path = sml_ckt_path,
+            min_pred_depth = 0.1,
+            max_pred_depth = 8.0,
+            checkpoint_dir = os.path.join(result_root, 'checkpoints', current_time),
+            n_threads = 1,
+            DepthModel = DepthModel,
+        )

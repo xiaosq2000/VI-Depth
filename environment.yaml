@@ -16,3 +16,4 @@ dependencies:
     - pytorch-lightning==1.9.0
     - imageio==2.25.0
     - prettytable==3.6.0
+#pip install torch-sparse -f https://data.pyg.org/whl/torch-1.13.0+cu117.html
