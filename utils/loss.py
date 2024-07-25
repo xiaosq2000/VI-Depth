@@ -20,19 +20,20 @@ def compute_consistency_loss(ref_image, tgt_image,
 
     if not isinstance(ref_output_depth, list):
         ref_output_depth = [ref_output_depth]
-    if not isinstance(tgt_output_depth, list):
-        tgt_output_depth = [tgt_output_depth]
+    # if not isinstance(tgt_output_depth, list):
+    #     tgt_output_depth = [tgt_output_depth]
     
     diff_img_list = []; diff_color_list = []
     diff_depth_list = []; valid_mask_list = []
+
     
-    #TODO: should the warping be onto the gt depth?
+    #Should the warping be onto the gt depth? No-> we learn to map consistent scale
     for ref_img, ref_depth, pose, pose_inv in zip(ref_image, ref_output_depth, poses, poses_inv):
         diff_img_tmp1, diff_color_tmp1, diff_depth_tmp1, valid_mask_tmp1 = compute_pairwise_loss(
-            tgt_image, ref_img, tgt_gt_depths, ref_depth, pose, intrinsic)
+            tgt_image, ref_img, tgt_output_depth, ref_depth, pose, intrinsic)
 
         diff_img_tmp2, diff_color_tmp2, diff_depth_tmp2, valid_mask_tmp2 = compute_pairwise_loss(
-            ref_img, tgt_image, ref_depth, tgt_gt_depths, pose_inv, intrinsic)
+            ref_img, tgt_image, ref_depth, tgt_output_depth, pose_inv, intrinsic)
 
         diff_img_list += [diff_img_tmp1, diff_img_tmp2]
         diff_color_list += [diff_color_tmp1, diff_color_tmp2]
@@ -40,7 +41,7 @@ def compute_consistency_loss(ref_image, tgt_image,
         valid_mask_list += [valid_mask_tmp1, valid_mask_tmp2]
 
     diff_img = torch.cat(diff_img_list, dim=1)
-    diff_color = torch.cat(diff_color_list, dim=1)
+    #diff_color = torch.cat(diff_color_list, dim=1)
     diff_depth = torch.cat(diff_depth_list, dim=1)
     valid_mask = torch.cat(valid_mask_list, dim=1)
 
@@ -75,10 +76,10 @@ def compute_pairwise_loss(tgt_img, ref_img, tgt_depth, ref_depth, pose, intrinsi
 
     diff_img = (tgt_img-ref_img_warped).abs().clamp(0, 1)
 
-    # if not hparams.no_ssim:
+    # if not no_ssim:
     #     ssim_map = compute_ssim_loss(tgt_img, ref_img_warped)
     #     diff_img = (0.15 * diff_img + 0.85 * ssim_map)
-    # diff_img = torch.mean(diff_img, dim=1, keepdim=True)
+    diff_img = torch.mean(diff_img, dim=1, keepdim=True)
 
     return diff_img, diff_color, diff_depth, valid_mask
 

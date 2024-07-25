@@ -407,9 +407,16 @@ def inverse_warp_sfm(img, depth, ref_depth, pose, intrinsics, padding_mode='zero
         projected_depth: sampled depth from source image  
         computed_depth: computed depth of source image using the target depth
     """
+    try:
+        check_sizes(img, 'img', 'B3HW')
+    except:
+        img = img.permute(0,3,1,2).cuda()
+        check_sizes(img, 'img', 'B3HW')
+
+
     B, _, H, W = img.size()
 
-    T = pose #pose_vec2mat(pose)  # [B,3,4]
+    T = pose[:, :3, :].float() #pose_vec2mat(pose)  # [B,3,4]
     P = torch.matmul(intrinsics, T)[:, :3, :]
 
     world_points = depth_to_3d(depth, intrinsics) # B 3 H W

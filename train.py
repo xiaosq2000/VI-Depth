@@ -10,6 +10,7 @@ import modules.midas.utils as utils
 from modules.interpolator import Interpolator2D
 
 import utils.log_utils as log_utils
+from utils.common_op import resize_and_pad
 from utils.loss import compute_loss, compute_consistency_loss #, compute_metric_loss
 from utils_eval import compute_ls_solution
 from data.SML_dataset import SML_dataset
@@ -153,20 +154,56 @@ def train_scale_consistency(
                 ref_img, ref_ga_depth, ref_interp, ref_gt_depth,\
                 tgt_pose, ref_pose, intrinsics = batch_data
             
+            ref_img = [img.to(device) for img in ref_img]
+
             ## visualize the tgt_img, and ref_im
-            tgt_img_test = tgt_img.squeeze().cpu().numpy()
-            ref_img0_test = ref_img[0].squeeze().cpu().numpy()
-            ref_img1_test = ref_img[1].squeeze().cpu().numpy()
-            plt.figure()
-            plt.title("Tgt Img")
-            plt.imshow(tgt_img_test) #1
-            plt.figure()
-            plt.title("Ref 0 img")
-            plt.imshow(ref_img0_test) #0
-            plt.figure()
-            plt.title("Ref 1 img")
-            plt.imshow(ref_img1_test) #2
-            plt.show()
+            tgt_img_test_1 = tgt_img[0].squeeze().cpu().numpy()
+            tgt_img_test_2 = tgt_img[1].squeeze().cpu().numpy()
+
+            ref_img0_test_1 = ref_img[0][0].squeeze().cpu().numpy()
+            ref_img0_test_2 = ref_img[0][1].squeeze().cpu().numpy()
+
+            ref_img1_test_1 = ref_img[1][0].squeeze().cpu().numpy()
+            ref_img1_test_2 = ref_img[1][1].squeeze().cpu().numpy()
+
+            # plt.figure(1)
+            # plt.subplot(1, 3, 1)
+            # plt.title("Tgt Img 1")
+            # plt.imshow(tgt_img_test_1)
+            # plt.subplot(1, 3, 2)
+            # plt.title("ref0 Img 1")
+            # plt.imshow(ref_img0_test_1)
+            # plt.subplot(1, 3, 3)
+            # plt.title("ref0 Img 2")
+            # plt.imshow(ref_img0_test_2)
+
+            # plt.figure(2)
+            # plt.subplot(1, 3, 1)
+            # plt.title("Tgt Img 2")
+            # plt.imshow(tgt_img_test_2)
+            # plt.subplot(1, 3, 2)
+            # plt.title("ref1 Img 1")
+            # plt.imshow(ref_img1_test_1)
+            # plt.subplot(1, 3, 3)
+            # plt.title("ref1 Img 2")
+            # plt.imshow(ref_img1_test_2)
+            # plt.show()
+
+            # #visualize for each batch
+            # for i in range(batch_size):
+            #     tgt_img_test = tgt_img_test[i].squeeze()
+            #     ref_img0_test = ref_img0_test[i].squeeze()
+            #     ref_img1_test = ref_img1_test[i].squeeze()
+            #     plt.figure()
+            #     plt.title("Tgt Img")
+            #     plt.imshow(tgt_img_test) #1
+            #     plt.figure()
+            #     plt.title("Ref 0 img")
+            #     plt.imshow(ref_img0_test) #0
+            #     plt.figure()
+            #     plt.title("Ref 1 img")
+            #     plt.imshow(ref_img1_test) #2
+            #     plt.show()
             
             #TODO: below code assumes sequence of 3 modify to be general
             # each time empty batch
@@ -254,12 +291,14 @@ def train_scale_consistency(
             # Inverse depth to depth
             d_tgt, d_ref0, d_ref1 = 1.0 / d_tgt, 1.0 / d_ref0, 1.0 / d_ref1
             sml_pred_tgt, sml_pred_ref0, sml_pred_ref1 = 1.0 / sml_pred_tgt, 1.0 / sml_pred_ref0, 1.0 / sml_pred_ref1
-
-            ref_output_depth = [sml_pred_ref0, sml_pred_ref1]
+            
+            ref_output_depth = []
+            ref_output_depth.append(sml_pred_ref0)
+            ref_output_depth.append(sml_pred_ref1)
             tgt_output_depth = sml_pred_tgt
 
             #get poses from tgt to ref0, tgt to ref1
-            pose_CttoG = tgt_pose.to(device); pose_Cref0toG = ref_pose[0].to(device);
+            pose_CttoG = tgt_pose.to(device); pose_Cref0toG = ref_pose[0].to(device)
             pose_Cref1toG = ref_pose[1].to(device)
             aux_mat = torch.tensor([0,0,0,1]).type_as(pose_CttoG).unsqueeze(0).unsqueeze(0).repeat(batch_size,1,1)
             pose_CttoG = torch.cat((pose_CttoG, aux_mat), dim=1)
@@ -276,9 +315,13 @@ def train_scale_consistency(
             pose_CttoRef0_inv = torch.inverse(pose_CttoRef0)
             pose_CttoRef1_inv = torch.inverse(pose_CttoRef1)
             poses_inv = [pose_CttoRef0_inv, pose_CttoRef1_inv]
-
-            photo_loss, geomentry_loss = compute_consistency_loss(batch_image_ref, batch_image_tgt,
-                                            batch_gt_tgt, batch_gt_ref,
+            
+            #TODO: make sure the output depth sizes match
+            ref_img_resize = [resize_and_pad(img, (ref_output_depth[0].shape[-2], ref_output_depth[0].shape[-1])).permute(0,3,1,2) for img in ref_img]
+            tgt_img_resize = resize_and_pad(tgt_img, (tgt_output_depth.shape[-2], tgt_output_depth.shape[-1])).permute(0,3,1,2)
+            #correct the batches before passing to the loss function
+            photo_loss, geomentry_loss = compute_consistency_loss(ref_img_resize, tgt_img_resize,
+                                            batch_gt_tgt, batch_gt_ref, #gt_depth_tgt, gt_depth_ref 
                                             poses, poses_inv,
                                             ref_output_depth, tgt_output_depth,
                                             intrinsics,
@@ -713,11 +756,11 @@ def log_summary(summary_writer,
                 global_step=step)
             
 if __name__ == '__main__':
-    train_root = '/media/vision/RPNG_FLASH_4/void_150_sample'
+    train_root = '/media/saimouli/Data6T/datasets/VOID_150_test'
     #'/media/saimouli/RPNG_FLASH_4/datasets/VOID_150'
-    result_root = '/media/vision/RPNG_FLASH_4/void_150_sample/results'
+    result_root = '/media/saimouli/Data6T/datasets/VOID_150_test/results' #'/media/vision/RPNG_FLASH_4/void_150_sample/results'
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    sml_ckt_path = '/home/vision/Documents/VI-Depth/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt'
+    sml_ckt_path = '/home/saimouli/Documents/github/VI_Depth_sai/weights/sml_model.dpredictor.dpt_hybrid.nsamples.150.ckpt'
     
     image_path = os.path.join(train_root, 'image')
     gt_path = os.path.join(train_root, 'ground_truth')
@@ -759,7 +802,7 @@ if __name__ == '__main__':
             # train params
             learning_rates = [2e-4,1e-4],
             learning_schedule = [20,80],
-            batch_size = 1,
+            batch_size = 3,
             n_step_summary = 5,
             n_step_per_checkpoint = 100,
             
