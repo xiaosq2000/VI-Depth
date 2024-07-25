@@ -78,12 +78,16 @@ def train_scale_consistency(
     log_utils.log_params(log_path, locals())
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    train_dataset = SML_consistent_dataset(root=train_dataset_path)
+
     train_dataloader = torch.utils.data.DataLoader(
-        SML_consistent_dataset(
-            root = train_dataset_path),
+        train_dataset,
         batch_size=batch_size,
         num_workers=n_threads)
-    
+
+    n_train_sample = len(train_dataset)
+    n_train_step = learning_schedule[-1] * np.ceil(n_train_sample / batch_size).astype(np.int32)
+
     #n_train_step = learning_schedule[-1] * np.ceil(n_train_sample / batch_size).astype(np.int32)
     
     # transform
@@ -278,9 +282,15 @@ def train_scale_consistency(
             d_ref0 = torch.stack(batch_d_ref0, 0)
             d_ref1 = torch.stack(batch_d_ref1, 0)
 
-            batch_image_tgt = torch.stack(batch_image_tgt, 0)
-            batch_gt_tgt = torch.stack(batch_gt_tgt, 0)
-            batch_image_ref = torch.stack(batch_image_ref0 + batch_image_ref1, dim=0)
+            batch_image_ref0_sml = torch.stack(batch_image_ref0, 0)
+            batch_gt_ref0_sml = torch.stack(batch_gt_ref0, 0)
+            batch_image_ref1_sml = torch.stack(batch_image_ref1, 0)
+            batch_gt_ref1_sml = torch.stack(batch_gt_ref1, 0)
+            batch_image_tgt_sml = torch.stack(batch_image_tgt, 0)
+            batch_gt_tgt_sml = torch.stack(batch_gt_tgt, 0)
+            #batch_image_tgt = torch.stack(batch_image_tgt, 0)
+            #batch_gt_tgt = torch.stack(batch_gt_tgt, 0)
+            #batch_image_ref = torch.stack(batch_image_ref0 + batch_image_ref1, dim=0)
             batch_gt_ref = torch.stack(batch_gt_ref0 + batch_gt_ref1, dim=0)
 
             # Perform forward pass
@@ -330,15 +340,30 @@ def train_scale_consistency(
                                             loss_smoothness_kernel_size)
 
             #prepare inputs 
-            image = [batch_image_tgt, batch_image_ref]
-            output_depth = [sml_pred_tgt, sml_pred_ref0, sml_pred_ref1]
-            gt_depths = [batch_gt_tgt, batch_gt_ref]
+            #image = [batch_image_tgt, batch_image_ref]
+            #output_depth = [sml_pred_tgt, sml_pred_ref0, sml_pred_ref1]
+            #gt_depths = [batch_gt_tgt, batch_gt_ref]
             
-            metric_loss = compute_loss(image, output_depth, gt_depths, 
-                                              loss_func, w_smoothness, 
-                                              loss_smoothness_kernel_size)
+            metric_loss_ref0,_ = compute_loss(batch_image_ref0_sml, 
+                                       sml_pred_ref0, 
+                                       batch_gt_ref0_sml, 
+                                       loss_func, w_smoothness, 
+                                       loss_smoothness_kernel_size)
             
-            loss = 0 * photo_loss + 0.3 * geomentry_loss + 0.7 * metric_loss
+            metric_loss_ref1,_ = compute_loss(batch_image_ref1_sml,
+                                        sml_pred_ref0,
+                                        batch_gt_ref1_sml,
+                                        loss_func, w_smoothness,
+                                        loss_smoothness_kernel_size)
+
+            metric_loss_tgt,_ = compute_loss(batch_image_tgt_sml,
+                                        sml_pred_tgt,
+                                        batch_gt_tgt_sml,
+                                        loss_func, w_smoothness,
+                                        loss_smoothness_kernel_size)
+            metric_loss = metric_loss_ref0 + metric_loss_ref1 + metric_loss_tgt
+            
+            loss = 0.0* photo_loss + 0.3 * geomentry_loss + 0.7 * metric_loss
             
            #print('{}/{} epoch:{}: {}'.format(train_step % n_train_step, n_train_step, epoch, loss.item()))
 

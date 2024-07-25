@@ -15,8 +15,8 @@ def compute_consistency_loss(ref_image, tgt_image,
     loss_smoothness = 0.0
     loss_consistency = 0.0
 
-    validity_map_ref = ref_gt_depths > 0
-    validity_map_tgt = tgt_gt_depths > 0
+    #validity_map_ref = ref_gt_depths > 0
+    #validity_map_tgt = tgt_gt_depths > 0
 
     if not isinstance(ref_output_depth, list):
         ref_output_depth = [ref_output_depth]
